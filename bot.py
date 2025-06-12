@@ -4,10 +4,14 @@ from aiogram import Bot, Dispatcher
 from config import BOT_TOKEN
 from features.findgame.handlers import router as findgame_router
 
+from features.core.handlers import router as core_router
+
+
 async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
+    dp.include_router(core_router)
     dp.include_router(findgame_router)  # ← подключаем findgame роутер
 
     print("Бот запущен!")

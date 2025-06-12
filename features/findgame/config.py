@@ -4,4 +4,6 @@ DEFAULT_WIN_CONDITION = 3  # сколько раз нужно найти пре�
 # Ограничения
 MIN_FIELD_SIZE = 3
 MAX_FIELD_SIZE = 6
+MIN_ITEMS_PER_FIELD = 2
+MAX_ITEMS_PER_FIELD = 6
 MAX_PLAYERS = 5
