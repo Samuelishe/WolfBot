@@ -7,7 +7,6 @@ class Player:
         self.user_id = user_id
         self.username = username or f"Игрок {user_id}"
         self.score = 0
-        self.last_roll = None  # (dice1, dice2)
 
     def __repr__(self):
         return f"<Player {self.username} (id={self.user_id}) score={self.score}>"
@@ -41,8 +40,6 @@ class GameSession:
         self.field_message_id: Optional[int] = None  # ID сообщения с полем
 
         self.control_message_id: Optional[int] = None  # ID сообщения с панелью управления
-        self.afk_counters: dict[int, int] = {}  # user_id -> количество пропусков
-        self.turn_index = 0
 
         self.opened_cells: set[tuple[int, int]] = set() # список открытых ячеек
 
@@ -64,7 +61,6 @@ class GameSession:
 
     def advance_turn(self):
         self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
-        self.turn_index = self.current_turn_index
 
     def generate_field(self, min_items: int, max_items: int, special_chance: float = 0.05):
         self.item_positions = []
@@ -103,8 +99,13 @@ class GameSession:
         ]
 
     def click_cell(self, x: int, y: int) -> str:
+        if (x, y) in self.opened_cells:
+            return "already_opened"  # Никакого действия, клетка уже открыта
+
+        self.opened_cells.add((x, y))  # Сохраняем, что клетка открыта
+        if not (0 <= x < self.field_size and 0 <= y < self.field_size):
+            return "invalid"
         cell = self.grid[y][x]
-        self.revealed[(x, y)] = cell  # ✅ сохраняем, что открыли эту клетку
 
         if cell == 'item':
             self.get_current_player().score += 1
@@ -116,9 +117,11 @@ class GameSession:
         else:
             return "empty"
 
+
     def check_win(self) -> Optional[Player]:
-        for p in self.players:
-            if p.score >= self.win_condition:
-                self.winner = p
-                return p
+        if self.winner:
+            return self.winner
+        for player in self.players:
+            if player.score >= self.win_condition:
+                return player
         return None

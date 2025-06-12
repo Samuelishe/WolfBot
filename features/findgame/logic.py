@@ -7,12 +7,12 @@ from asyncio import sleep
 
 async def start_turn_timer(bot: Bot, session: GameSession):
     current = session.get_current_player()
-    initial_turn = session.turn_index
+    initial_turn = session.current_turn_index
 
     await sleep(AFK_TIMEOUT)
 
     # Проверим: не изменился ли игрок (кто-то кликнул до таймера)
-    if not session.started or session.turn_index != initial_turn:
+    if not session.started or session.current_turn_index != initial_turn:
         return
 
     user_id = current.user_id
@@ -38,7 +38,7 @@ async def start_turn_timer(bot: Bot, session: GameSession):
     await bot.edit_message_reply_markup(
         chat_id=chat_id,
         message_id=session.field_message_id,
-        reply_markup=build_field_keyboard(session.field_size)
+        reply_markup=build_field_keyboard(session)
     )
 
     # Новый ход — запускаем таймер заново

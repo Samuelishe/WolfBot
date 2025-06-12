@@ -1,3 +1,5 @@
+from random import randint
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
@@ -151,6 +153,34 @@ async def handle_control_buttons(callback: CallbackQuery):
             await callback.answer("⚠️ Нужно минимум 2 игрока.")
             return
         session.started = True
+
+        #Бросок кубиков
+        dice_rolls = {}
+        used_totals = set()
+
+        for player in session.players:
+            while True:
+                dice1 = randint(1, 6)
+                dice2 = randint(1, 6)
+                total = dice1 + dice2
+                if total not in used_totals:
+                    used_totals.add(total)
+                    dice_rolls[player.user_id] = (total, dice1, dice2)
+                    break
+
+        # Сортировка игроков по сумме бросков (по убыванию)
+        session.players.sort(key=lambda p: dice_rolls[p.user_id][0], reverse=True)
+
+        # Сообщение с бросками
+        roll_messages = []
+        for player in session.players:
+            _, d1, d2 = dice_rolls[player.user_id]
+            roll_text = f"{player.display_name}: {dice_emoji(d1)}{dice_emoji(d2)}"
+            roll_messages.append(roll_text)
+
+        await callback.message.answer("🎲 Результаты бросков:\n" + "\n".join(roll_messages))
+
+        #Генерация поля
         session.generate_field(min_items=MIN_ITEMS_PER_FIELD, max_items=MAX_ITEMS_PER_FIELD)
         await callback.message.edit_text(
             f"🎮 Игра началась!\nХод первого игрока: {session.get_current_player().username}",
@@ -205,7 +235,11 @@ async def handle_click(callback: CallbackQuery):
 
     player = session.get_current_player()
     if not player or player.user_id != user_id:
-        await callback.answer("⏳ Сейчас не твой ход!", show_alert=False)
+        await callback.answer("⏳ Сейчас не твой ход!", show_alert=True)
+        return
+
+    if callback.data == "fg:noop":
+        await callback.answer()
         return
 
     # Получим координаты
@@ -217,7 +251,9 @@ async def handle_click(callback: CallbackQuery):
         return
 
     result = session.click_cell(x, y)
-
+    if result == "already_opened":
+        await callback.answer("⛔ Эта клетка уже открыта!", show_alert=True)
+        return
     if result == "found":
         await callback.message.answer(f"✅ {player.display_name} нашёл предмет!")
     elif result == "special":
@@ -242,3 +278,7 @@ async def handle_click(callback: CallbackQuery):
 
     await callback.answer()  # чтобы убрать "часики"
 
+def dice_emoji(value: int) -> str:
+    return {
+        1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"
+    }.get(value, "?")
