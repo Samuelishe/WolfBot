@@ -14,7 +14,10 @@ from .config import (DEFAULT_FIELD_SIZE,
 from .session import GameSession
 from .session_manager import get_session, set_session, del_session, has_session
 from features.findgame.utils import dice_emoji, are_markups_different
-from features.findgame.logic import start_turn_timer, append_to_dice_log, generate_scoreboard
+from features.findgame.logic import (start_turn_timer,
+                                     append_to_dice_log,
+                                     append_multiple_to_dice_log,
+                                     generate_scoreboard)
 from features.findgame.board import build_field_keyboard
 
 
@@ -139,7 +142,7 @@ async def handle_control_buttons(callback: CallbackQuery):
                     break
 
         session.players.sort(key=lambda p: dice_rolls[p.user_id][0], reverse=True)
-        session.dice_rolls = dice_rolls  # ← сохраняем броски для логов
+        session.dice_rolls = dice_rolls
 
         roll_texts = []
         for player in session.players:
@@ -149,16 +152,22 @@ async def handle_control_buttons(callback: CallbackQuery):
         dice_msg = await callback.message.answer("🎲 Результаты бросков:\n" + "\n".join(roll_texts))
         session.dice_message_id = dice_msg.message_id
 
-        await append_to_dice_log(callback.bot, session,
-                                 f"🔁 Ход переходит к {session.get_current_player().username}")
-        await sleep(0.3)
+        # 🧠 ВАЖНО: сначала генерируем поле, чтобы grid уже был готов
         session.generate_field(min_items=MIN_ITEMS_PER_FIELD, max_items=MAX_ITEMS_PER_FIELD)
+
+        # 🎯 Теперь отображаем поле — оно будет корректным
         await callback.bot.edit_message_text(
             chat_id=session.chat_id,
             message_id=session.field_message_id,
             text=f"🎮 Игра началась!\nХод первого игрока: {session.get_current_player().username}",
             reply_markup=build_field_keyboard(session)
         )
+
+        # 🧾 Только теперь лог
+        await append_to_dice_log(callback.bot, session,
+                                 f"🔁 Ход переходит к {session.get_current_player().username}")
+
+        await sleep(0.3)
         await callback.answer("🚀 Поехали!")
         session.cancel_afk_timer()
         await start_turn_timer(callback.bot, session)
@@ -200,7 +209,7 @@ async def handle_control_buttons(callback: CallbackQuery):
     # 🔁 Обновляем основную клавиатуру управления (если игра ещё не началась)
     if not session.started:
         new_markup = build_control_keyboard(session)
-        if are_markups_different(callback.message.reply_markup, new_markup):
+        if not callback.message.reply_markup or are_markups_different(callback.message.reply_markup, new_markup):
             try:
                 await callback.message.edit_reply_markup(reply_markup=new_markup)
             except Exception as e:
@@ -251,31 +260,30 @@ async def handle_click(callback: CallbackQuery):
             except TelegramRetryAfter as e:
                 print(f"[edit_reply_markup] Flood control: wait {e.retry_after}s")
         return
+    log_lines = []
+
     if result == "found":
-        await append_to_dice_log(callback.bot, session, f"✅ {player.display_name} нашёл предмет!")
+        log_lines.append(f"✅ {player.display_name} нашёл предмет!")
     elif result == "special":
-        await append_to_dice_log(callback.bot, session,
-                                 f"🌟 {player.display_name} нашёл **особый предмет** и ПОБЕДИЛ!")
+        log_lines.append(f"🌟 {player.display_name} нашёл **особый предмет** и ПОБЕДИЛ!")
     else:
-        await append_to_dice_log(callback.bot, session, f"❌ {player.display_name} промахнулся.")
+        log_lines.append(f"❌ {player.display_name} промахнулся.")
 
     winner = session.check_win()
     if winner:
-        await append_to_dice_log(callback.bot, session,
-                                 f"🏆 Победил {winner.username} с {winner.score} очками!")
+        log_lines.append(f"🏆 Победил {winner.username} с {winner.score} очками!")
         scoreboard = generate_scoreboard(session)
-        await append_to_dice_log(callback.bot, session, scoreboard)
-
+        log_lines.append(scoreboard)
+        await append_multiple_to_dice_log(callback.bot, session, log_lines)
         del_session(chat_id)
-
     else:
         session.advance_turn()
         await start_turn_timer(callback.bot, session)
-        await append_to_dice_log(callback.bot, session,
-                                 f"🔁 Ход переходит к {session.get_current_player().username}")
+        log_lines.append(f"🔁 Ход переходит к {session.get_current_player().username}")
+        await append_multiple_to_dice_log(callback.bot, session, log_lines)
 
     new_markup = build_field_keyboard(session)
-    if are_markups_different(callback.message.reply_markup, new_markup):
+    if not callback.message.reply_markup or are_markups_different(callback.message.reply_markup, new_markup):
         try:
             await callback.message.edit_reply_markup(reply_markup=new_markup)
         except TelegramRetryAfter as e:

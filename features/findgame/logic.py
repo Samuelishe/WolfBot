@@ -61,7 +61,6 @@ async def append_to_dice_log(bot, session, new_line: str):
     body = "\n".join(session.dice_log)
     new_text = header + ("\n" + body if body else "")
 
-    # 🚫 Пропускаем редактирование, если текст не изменился
     if session.last_dice_log_text == new_text:
         return
 
@@ -71,11 +70,13 @@ async def append_to_dice_log(bot, session, new_line: str):
             message_id=session.dice_message_id,
             text=new_text
         )
-        session.last_dice_log_text = new_text
     except TelegramRetryAfter as e:
         print(f"[append_to_dice_log] Flood control: wait {e.retry_after}s")
     except Exception as e:
         print(f"[append_to_dice_log] Ошибка: {e}")
+    finally:
+        # Даже если ничего не изменилось — всё равно запоминаем текст
+        session.last_dice_log_text = new_text
 
 def generate_scoreboard(session: GameSession) -> str:
     all_players = session.players + session.eliminated_players
@@ -85,3 +86,39 @@ def generate_scoreboard(session: GameSession) -> str:
     for idx, player in enumerate(all_players, 1):
         lines.append(f"{idx}. {player.display_name}: {player.score} очк.")
     return "\n".join(lines)
+
+async def append_multiple_to_dice_log(bot, session, lines: list[str]):
+    changed = False
+    for line in lines:
+        if line:  # защита от пустых строк
+            session.append_to_log(line)
+            changed = True
+
+    if not changed:
+        return
+
+    header = "🎲 Результаты бросков и ходов:\n"
+    for idx, player in enumerate(session.players, start=1):
+        dice = session.dice_rolls.get(player.user_id)
+        if dice:
+            _, d1, d2 = dice
+            header += f"{player.display_name}: {dice_emoji(d1)}{dice_emoji(d2)} - {idx} ход\n"
+
+    body = "\n".join(session.dice_log)
+    new_text = header + ("\n" + body if body else "")
+
+    if session.last_dice_log_text == new_text:
+        return
+
+    try:
+        await bot.edit_message_text(
+            chat_id=session.chat_id,
+            message_id=session.dice_message_id,
+            text=new_text
+        )
+    except TelegramRetryAfter as e:
+        print(f"[append_multiple_to_dice_log] Flood control: wait {e.retry_after}s")
+    except Exception as e:
+        print(f"[append_multiple_to_dice_log] Ошибка: {e}")
+    finally:
+        session.last_dice_log_text = new_text  # даже при ошибке мы обновим
