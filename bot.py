@@ -2,7 +2,7 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from config import BOT_TOKEN
-from features.findgame.handlers import router as findgame_router  # ← добавили
+from features.findgame.handlers import router as findgame_router
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
