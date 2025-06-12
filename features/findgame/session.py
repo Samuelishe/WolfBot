@@ -29,11 +29,19 @@ class GameSession:
         self.item_positions: List[tuple[int, int]] = []
         self.special_position: Optional[tuple[int, int]] = None
 
+        self.afk_counters: dict[int, int] = {}  # user_id -> число пропусков подряд
+        self.field_message_id: Optional[int] = None  # ID сообщения с полем
+
+        self.control_message_id: Optional[int] = None  # ID сообщения с панелью управления
+
     def add_player(self, user_id: int, username: Optional[str]) -> bool:
         if any(p.user_id == user_id for p in self.players):
             return False  # уже есть
         self.players.append(Player(user_id, username))
         return True
+
+    def remove_player(self, user_id: int):
+        self.players = [p for p in self.players if p.user_id != user_id]
 
     def get_current_player(self) -> Optional[Player]:
         if not self.players:
