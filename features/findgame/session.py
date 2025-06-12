@@ -1,5 +1,6 @@
 from typing import List, Optional
-import random
+from asyncio import Task
+from random import randint, random, sample, choice
 
 
 class Player:
@@ -40,19 +41,41 @@ class GameSession:
         self.field_message_id: Optional[int] = None  # ID сообщения с полем
 
         self.control_message_id: Optional[int] = None  # ID сообщения с панелью управления
+        self.control_messages: dict[int, int] = {}  # user_id -> message_id персонального управления
 
         self.opened_cells: set[tuple[int, int]] = set() # список открытых ячеек
+        self.dice_message_id: Optional[int] = None  # ID сообщения с результатами
+        self.afk_task: Optional[Task] = None  # текущий таймер хода
+        self.dice_log: list[str] = []  # лог ходов и событий
+        self.dice_rolls: dict[int, tuple[int, int, int]] = {}  # user_id -> (total, d1, d2)
+        self.eliminated_players: list[Player] = [] # выбывшие игроки
+        self.last_dice_log_text: Optional[str] = None # локальное хранение последнего текста лога
 
     def add_player(self, user_id: int, username: Optional[str]) -> bool:
-        self.afk_counters[user_id] = 0
         if any(p.user_id == user_id for p in self.players):
             return False  # уже есть
         self.players.append(Player(user_id, username))
+        self.afk_counters[user_id] = 0
         return True
 
     def remove_player(self, user_id: int):
-        self.players = [p for p in self.players if p.user_id != user_id]
+        player = next((p for p in self.players if p.user_id == user_id), None)
+        if not player:
+            return
+
+        index = self.players.index(player)
+
+        self.players.remove(player)
+        self.eliminated_players.append(player)
         self.afk_counters.pop(user_id, None)
+
+        # Сдвигаем current_turn_index, если удалённый игрок был:
+        if index < self.current_turn_index:
+            self.current_turn_index -= 1
+        elif index == self.current_turn_index:
+            # Если удалили текущего — следующий игрок становится первым
+            if self.current_turn_index >= len(self.players):
+                self.current_turn_index = 0
 
     def get_current_player(self) -> Optional[Player]:
         if not self.players:
@@ -67,8 +90,8 @@ class GameSession:
         self.special_position = None
 
         total_cells = self.field_size * self.field_size
-        num_items = random.randint(min_items, max_items)
-        has_special = random.random() < special_chance
+        num_items = randint(min_items, max_items)
+        has_special = random() < special_chance
 
         # если special будет, то обычных предметов на 1 меньше
         actual_items = num_items - 1 if has_special else num_items
@@ -77,7 +100,7 @@ class GameSession:
         flat_grid = ['empty'] * total_cells
 
         # Случайно разместим обычные предметы
-        item_indices = random.sample(range(total_cells), actual_items)
+        item_indices = sample(range(total_cells), actual_items)
         for idx in item_indices:
             flat_grid[idx] = 'item'
 
@@ -88,7 +111,7 @@ class GameSession:
         if has_special:
             empty_indices = [i for i in range(total_cells) if flat_grid[i] == 'empty']
             if empty_indices:
-                special_idx = random.choice(empty_indices)
+                special_idx = choice(empty_indices)
                 flat_grid[special_idx] = 'special'
                 self.special_position = (special_idx // self.field_size, special_idx % self.field_size)
 
@@ -125,3 +148,11 @@ class GameSession:
             if player.score >= self.win_condition:
                 return player
         return None
+
+    def cancel_afk_timer(self):
+        if self.afk_task:
+            self.afk_task.cancel()
+            self.afk_task = None
+
+    def append_to_log(self, text: str):
+        self.dice_log.append(text)
