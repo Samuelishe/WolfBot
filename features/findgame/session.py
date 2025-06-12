@@ -5,12 +5,20 @@ import random
 class Player:
     def __init__(self, user_id: int, username: Optional[str]):
         self.user_id = user_id
-        self.username = username or f"id:{user_id}"
+        self.username = username or f"Игрок {user_id}"
         self.score = 0
         self.last_roll = None  # (dice1, dice2)
 
     def __repr__(self):
         return f"<Player {self.username} (id={self.user_id}) score={self.score}>"
+
+    @property
+    def display_name(self) -> str:
+        if self.username.startswith("@"):
+            return self.username
+        if self.username.startswith("Игрок "):
+            return self.username
+        return f"@{self.username}"
 
 class GameSession:
     def __init__(self, chat_id: int, field_size: int, win_condition: int):
@@ -35,6 +43,8 @@ class GameSession:
         self.control_message_id: Optional[int] = None  # ID сообщения с панелью управления
         self.afk_counters: dict[int, int] = {}  # user_id -> количество пропусков
         self.turn_index = 0
+
+        self.opened_cells: set[tuple[int, int]] = set() # список открытых ячеек
 
     def add_player(self, user_id: int, username: Optional[str]) -> bool:
         self.afk_counters[user_id] = 0
@@ -94,6 +104,8 @@ class GameSession:
 
     def click_cell(self, x: int, y: int) -> str:
         cell = self.grid[y][x]
+        self.revealed[(x, y)] = cell  # ✅ сохраняем, что открыли эту клетку
+
         if cell == 'item':
             self.get_current_player().score += 1
             return "found"

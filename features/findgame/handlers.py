@@ -1,4 +1,4 @@
-from aiogram import Router, F, Bot
+from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.filters.command import CommandObject
@@ -7,10 +7,14 @@ from .config import (DEFAULT_FIELD_SIZE,
                      MAX_FIELD_SIZE,
                      DEFAULT_WIN_CONDITION,
                      MIN_ITEMS_PER_FIELD,
-                     MAX_ITEMS_PER_FIELD)
+                     MAX_ITEMS_PER_FIELD,
+                     EMOJI_CLOSED,
+                     EMOJI_EMPTY,
+                     EMOJI_ITEM,
+                     EMOJI_SPECIAL)
 from .session import GameSession
+from .session_manager import get_session, set_session, del_session, has_session
 from features.findgame.logic import start_turn_timer
-from common.registry import create_session, get_session, has_session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
@@ -25,16 +29,18 @@ async def handle_findgame(msg: Message, command: CommandObject):
     cmd = command.command
     args = command.args
 
-    # Определим размер поля
+    # Значения по умолчанию
+    field_size = DEFAULT_FIELD_SIZE
+    win_condition = DEFAULT_WIN_CONDITION
+
+    # Попытка определить из команды (например, /findgame5)
     if cmd.startswith("findgame") and cmd != "findgame":
         try:
             field_size = int(cmd.replace("findgame", ""))
         except ValueError:
-            field_size = DEFAULT_FIELD_SIZE
-    else:
-        field_size = DEFAULT_FIELD_SIZE
+            pass
 
-    # Переопределим по аргументу, если передан
+    # Попытка переопределить аргументами
     if args:
         try:
             tokens = list(map(int, args.strip().split()))
@@ -42,13 +48,8 @@ async def handle_findgame(msg: Message, command: CommandObject):
                 field_size = tokens[0]
             if len(tokens) >= 2:
                 win_condition = tokens[1]
-            else:
-                win_condition = DEFAULT_WIN_CONDITION
         except ValueError:
-            field_size = DEFAULT_FIELD_SIZE
-            win_condition = DEFAULT_WIN_CONDITION
-    else:
-        win_condition = DEFAULT_WIN_CONDITION
+            pass
 
     # Ограничим размер поля
     field_size = max(MIN_FIELD_SIZE, min(MAX_FIELD_SIZE, field_size))
@@ -61,28 +62,43 @@ async def handle_findgame(msg: Message, command: CommandObject):
         await msg.answer("⚠️ Игра уже запущена в этом чате!")
         return
 
-    session = create_session(chat_id, field_size, win_condition)
+    session = GameSession(chat_id, field_size, win_condition)
+    set_session(chat_id, session)
     session.add_player(user_id, username)
 
     sent_msg = await msg.answer(
         f"🔍 Старт игры!\nПоле: {field_size}×{field_size}\n"
         f"Победа при {win_condition} находках",
-        reply_markup=build_field_keyboard(field_size)
+        reply_markup=build_field_keyboard(session)
     )
 
     session.field_message_id = sent_msg.message_id
 
-def build_field_keyboard(field_size: int) -> InlineKeyboardMarkup:
+def build_field_keyboard(session: GameSession) -> InlineKeyboardMarkup:
     keyboard = []
-    for y in range(field_size):
+
+    for y in range(session.field_size):
         row = []
-        for x in range(field_size):
-            btn = InlineKeyboardButton(
-                text="⬜",  # закрытая клетка
-                callback_data=f"fg:{x}:{y}"
-            )
-            row.append(btn)
+        for x in range(session.field_size):
+            if (x, y) not in session.opened_cells:
+                emoji = EMOJI_CLOSED
+                callback_data = f"fg:{x}:{y}"
+            else:
+                cell = session.grid[y][x]
+                if cell == "item":
+                    emoji = EMOJI_ITEM
+                elif cell == "special":
+                    emoji = EMOJI_SPECIAL
+                else:
+                    emoji = EMOJI_EMPTY
+                callback_data = "fg:noop"  # нажимать нельзя
+
+            row.append(InlineKeyboardButton(
+                text=emoji,
+                callback_data=callback_data
+            ))
         keyboard.append(row)
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def build_control_keyboard(session: GameSession, user_id: int) -> InlineKeyboardMarkup:
@@ -107,7 +123,7 @@ def build_control_keyboard(session: GameSession, user_id: int) -> InlineKeyboard
 async def handle_control_buttons(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
-    username = callback.from_user.username or "Игрок"
+    username = callback.from_user.username or callback.from_user.full_name or "Игрок"
 
     session = get_session(chat_id)
     if not session:
@@ -138,7 +154,7 @@ async def handle_control_buttons(callback: CallbackQuery):
         session.generate_field(min_items=MIN_ITEMS_PER_FIELD, max_items=MAX_ITEMS_PER_FIELD)
         await callback.message.edit_text(
             f"🎮 Игра началась!\nХод первого игрока: {session.get_current_player().username}",
-            reply_markup=build_field_keyboard(session.field_size)
+            new_markup = build_field_keyboard(session)
         )
         await callback.answer("🚀 Поехали!")
         await start_turn_timer(callback.bot, session)
@@ -154,19 +170,20 @@ async def handle_control_buttons(callback: CallbackQuery):
             return
 
         session.remove_player(user_id)
-        await callback.message.answer(f"🏳️ Игрок {player.username} сдался и выбыл из игры.")
+        await callback.message.answer(f"🏳️ Игрок {player.display_name} сдался и выбыл из игры.")
 
         if len(session.players) == 1:
             winner = session.players[0]
             await callback.message.answer(f"🏆 Победил {winner.username}, все остальные выбыли!")
-            # del_session(chat_id)  # опционально
+            del_session(chat_id)
+
         elif session.get_current_player().user_id == user_id:
             session.advance_turn()
             await start_turn_timer(callback.bot, session)
             await callback.message.answer(f"🔁 Ход переходит к {session.get_current_player().username}")
 
         session.generate_field(min_items=MIN_ITEMS_PER_FIELD, max_items=MAX_ITEMS_PER_FIELD)
-        new_markup = build_field_keyboard(session.field_size)
+        new_markup = build_field_keyboard(session)
         await callback.message.edit_reply_markup(reply_markup=new_markup)
         await callback.answer("😢 Ты сдался.")
 
@@ -202,17 +219,16 @@ async def handle_click(callback: CallbackQuery):
     result = session.click_cell(x, y)
 
     if result == "found":
-        await callback.message.answer(f"✅ {player.username} нашёл предмет!")
+        await callback.message.answer(f"✅ {player.display_name} нашёл предмет!")
     elif result == "special":
-        await callback.message.answer(f"🌟 {player.username} нашёл **особый предмет** и ПОБЕДИЛ!")
+        await callback.message.answer(f"🌟 {player.display_name} нашёл **особый предмет** и ПОБЕДИЛ!")
     else:
-        await callback.message.answer(f"❌ {player.username} промахнулся.")
+        await callback.message.answer(f"❌ {player.display_name} промахнулся.")
 
     winner = session.check_win()
     if winner:
         await callback.message.answer(f"🏆 Победил {winner.username} с {winner.score} очками!")
-        # Сессия закончена — можно удалить или сбросить
-        # del_session(chat_id)  # если будет реализована
+        del_session(chat_id)
 
     else:
         session.advance_turn()
@@ -221,7 +237,7 @@ async def handle_click(callback: CallbackQuery):
 
     # Перегенерируем поле (всегда!)
     session.generate_field(min_items=MIN_ITEMS_PER_FIELD, max_items=MAX_ITEMS_PER_FIELD)
-    new_markup = build_field_keyboard(session.field_size)
+    new_markup = build_field_keyboard(session)
     await callback.message.edit_reply_markup(reply_markup=new_markup)
 
     await callback.answer()  # чтобы убрать "часики"
