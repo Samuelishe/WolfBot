@@ -1,4 +1,4 @@
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.filters.command import CommandObject
@@ -9,8 +9,10 @@ from .config import (DEFAULT_FIELD_SIZE,
                      MIN_ITEMS_PER_FIELD,
                      MAX_ITEMS_PER_FIELD)
 from .session import GameSession
+from features.findgame.logic import start_turn_timer
 from common.registry import create_session, get_session, has_session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 
 router = Router()
 
@@ -139,6 +141,7 @@ async def handle_control_buttons(callback: CallbackQuery):
             reply_markup=build_field_keyboard(session.field_size)
         )
         await callback.answer("🚀 Поехали!")
+        await start_turn_timer(callback.bot, session)
 
     elif callback.data == "fg:giveup":
         if not session.started:
@@ -159,6 +162,7 @@ async def handle_control_buttons(callback: CallbackQuery):
             # del_session(chat_id)  # опционально
         elif session.get_current_player().user_id == user_id:
             session.advance_turn()
+            await start_turn_timer(callback.bot, session)
             await callback.message.answer(f"🔁 Ход переходит к {session.get_current_player().username}")
 
         session.generate_field(min_items=MIN_ITEMS_PER_FIELD, max_items=MAX_ITEMS_PER_FIELD)
@@ -212,6 +216,7 @@ async def handle_click(callback: CallbackQuery):
 
     else:
         session.advance_turn()
+        await start_turn_timer(callback.bot, session)
         await callback.message.answer(f"🔁 Ход переходит к {session.get_current_player().username}")
 
     # Перегенерируем поле (всегда!)

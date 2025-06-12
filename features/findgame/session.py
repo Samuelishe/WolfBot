@@ -33,8 +33,11 @@ class GameSession:
         self.field_message_id: Optional[int] = None  # ID сообщения с полем
 
         self.control_message_id: Optional[int] = None  # ID сообщения с панелью управления
+        self.afk_counters: dict[int, int] = {}  # user_id -> количество пропусков
+        self.turn_index = 0
 
     def add_player(self, user_id: int, username: Optional[str]) -> bool:
+        self.afk_counters[user_id] = 0
         if any(p.user_id == user_id for p in self.players):
             return False  # уже есть
         self.players.append(Player(user_id, username))
@@ -42,6 +45,7 @@ class GameSession:
 
     def remove_player(self, user_id: int):
         self.players = [p for p in self.players if p.user_id != user_id]
+        self.afk_counters.pop(user_id, None)
 
     def get_current_player(self) -> Optional[Player]:
         if not self.players:
@@ -50,6 +54,7 @@ class GameSession:
 
     def advance_turn(self):
         self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
+        self.turn_index = self.current_turn_index
 
     def generate_field(self, min_items: int, max_items: int, special_chance: float = 0.05):
         self.item_positions = []
