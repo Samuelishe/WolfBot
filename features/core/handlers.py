@@ -2,8 +2,7 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 
-router = Router()
-
+router = Router(name="core_router")
 
 @router.message(Command("start"))
 async def handle_start(msg: Message):
@@ -13,6 +12,8 @@ async def handle_start(msg: Message):
 @router.message(Command("help"))
 async def handle_help(msg: Message):
     await msg.answer("📘 Доступные команды:\n"
-                     "/findgame — начать игру по поиску предметов.\n"
-                     "/findgame3…6 — задать размер поля.\n"
-                     "/help — показать справку.")
+                     "/taro, /tarot, /taro1, /taro2, /taro3, /taro4 - таро\n"
+                     "/recipe - рецепт\n"
+                     "/dice - кинуть кубики\n"
+                     "/flip - подбросить монету"
+                     "/help — показать справку [вы тут]\n")

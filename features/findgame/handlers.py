@@ -21,7 +21,7 @@ from features.findgame.logic import (start_turn_timer,
 from features.findgame.board import build_field_keyboard
 
 
-router = Router()
+router = Router(name="findgame_router")
 
 @router.message(Command("findgame", "fg", "findgame3", "findgame4", "findgame5", "findgame6"))
 async def handle_findgame(msg: Message):
